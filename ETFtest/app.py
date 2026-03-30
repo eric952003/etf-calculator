@@ -1,97 +1,109 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import plotly.express as px  # 這次新增的超強畫圖套件！
 
-st.set_page_config(page_title="ETF 股息再投入試算", page_icon="📈")
-st.title("📈 ETF 股息再投入試算機 (全自動版)")
+st.set_page_config(page_title="ETF 股息再投入試算", page_icon="⚔️", layout="wide")
+st.title("⚔️ ETF 股息再投入：自訂多檔擂台")
 
-st.sidebar.header("1. 選擇台股標的")
-ticker_input = st.sidebar.text_input("輸入 ETF 股票代號", value="00878.TW")
+# ==========================================
+# 側邊欄設定區 (動態產生輸入框)
+# ==========================================
+st.sidebar.header("1. 選擇比較檔數與標的")
+num_etfs = st.sidebar.radio("你想同時試算幾檔 ETF？", [1, 2, 3], horizontal=True)
+
+default_tickers = ["00878.TW", "00679B.TW", "0050.TW"]
+colors = ["🔴", "🔵", "🟢"]
+tickers = []
+
+for i in range(num_etfs):
+    t = st.sidebar.text_input(f"{colors[i]} 選手 {chr(65+i)}", value=default_tickers[i])
+    tickers.append(t)
 
 st.sidebar.header("2. 設定投資參數")
 monthly_invest = st.sidebar.number_input("每月固定投入金額 (元)", min_value=1000, value=10000, step=1000)
 years = st.sidebar.slider("預計投資年限", min_value=1, max_value=30, value=10)
 
-st.write(f"正在抓取 **{ticker_input}** 的最新股價與配息資料...")
-
-try:
-    ticker = yf.Ticker(ticker_input)
-    hist = ticker.history(period="1d")
-    
-    if not hist.empty:
-        current_price = hist['Close'].iloc[0]
+# ==========================================
+# 抓取資料的小幫手函式
+# ==========================================
+def fetch_etf_data(ticker_symbol):
+    try:
+        ticker = yf.Ticker(ticker_symbol)
+        hist = ticker.history(period="1d")
+        if hist.empty:
+            return None, 0, 0
+        
+        price = hist['Close'].iloc[0]
         dividends = ticker.dividends
         
-        st.success("✅ 成功取得即時股價與配息紀錄！")
-        
-        col1, col2 = st.columns(2)
-        col1.metric(label="最新收盤價", value=f"{current_price:.2f} 元")
-        
         if not dividends.empty:
-            recent_dividends = dividends.tail(4) 
-            total_dividend_1y = recent_dividends.sum()
-            real_yield = (total_dividend_1y / current_price) * 100
-            annual_yield = real_yield / 100
-            
-            col2.metric(label="近四季合計配息", value=f"{total_dividend_1y:.2f} 元", delta=f"真實殖利率: {real_yield:.2f}%")
-            
-            st.write("### 💰 最近配息紀錄")
-            recent_dividends.index = recent_dividends.index.strftime('%Y-%m-%d')
-            st.dataframe(recent_dividends.rename("每股配息金額 (元)"), use_container_width=True)
-            
+            recent_divs = dividends.tail(4)
+            total_1y_div = recent_divs.sum()
+            annual_yield = total_1y_div / price
         else:
-            st.warning("⚠️ 找不到近期的配息紀錄，將使用預設殖利率 5% 試算。")
             annual_yield = 0.05
+            total_1y_div = 0
             
-        st.write("---")
-        if st.button(f"使用真實殖利率 ({annual_yield*100:.2f}%) 開始試算複利"):
-            data = []
-            total_shares_value = 0
-            total_principal = 0
-            
-            for year in range(1, years + 1):
-                yearly_invest = monthly_invest * 12
-                total_principal += yearly_invest
-                total_shares_value = (total_shares_value + yearly_invest) * (1 + annual_yield)
-                
-                data.append({
-                    "第幾年": f"第 {year} 年",
-                    "累積投入本金": int(total_principal),
-                    "含息總資產": int(total_shares_value),
-                })
-            
-            df = pd.DataFrame(data)
-            
-            st.write(f"### 🎯 如果你每個月投入 {monthly_invest:,} 元...")
-            estimated_shares = int(total_shares_value / (current_price * 1000))
-            
-            res_col1, res_col2 = st.columns(2)
-            res_col1.metric("預估總資產", f"{int(total_shares_value):,} 元")
-            res_col2.metric("約等於現在股價的", f"{estimated_shares} 張")
-            
-            # 原本的折線圖
-            st.line_chart(df.set_index("第幾年")[["累積投入本金", "含息總資產"]])
-            
-            # --- 以下是這次新增的圓餅圖區塊 ---
-            st.write("### 🥧 最終資產組成比例")
-            total_profit = total_shares_value - total_principal # 算出生出來的總獲利
-            
-            # 整理給圓餅圖的資料
-            pie_data = pd.DataFrame({
-                "分類": ["累積投入本金", "股息滾入獲利"],
-                "金額": [total_principal, total_profit]
-            })
-            
-            # 使用 Plotly 畫出精美的圓餅圖
-            fig = px.pie(pie_data, values="金額", names="分類", 
-                         color_discrete_sequence=["#1f77b4", "#ff7f0e"], # 設定藍橘配色
-                         hole=0.4) # 中間挖空變成甜甜圈圖，看起來更專業
-            
-            # 顯示在網頁上
-            st.plotly_chart(fig, use_container_width=True)
+        return price, annual_yield, total_1y_div
+    except:
+        return None, 0, 0
 
-    else:
-        st.error("⚠️ 找不到該檔股票，請確認代號是否正確。")
-except Exception as e:
-    st.error(f"連線失敗，請稍後再試。錯誤訊息: {e}")
+# ==========================================
+# 抓取並顯示選手資料 (動態分欄)
+# ==========================================
+st.write("### 📊 選手資料連線中...")
+
+cols = st.columns(num_etfs)
+etf_data = {}
+
+for i, t in enumerate(tickers):
+    price, yld, div_sum = fetch_etf_data(t)
+    etf_data[t] = {'price': price, 'yield': yld}
+    
+    with cols[i]:
+        st.subheader(f"{colors[i]} {t}")
+        if price:
+            st.metric("最新收盤價", f"{price:.2f} 元")
+            st.metric("近四季合計配息", f"{div_sum:.2f} 元", delta=f"真實殖利率: {yld*100:.2f}%")
+        else:
+            st.error("找不到資料或代號錯誤")
+
+# ==========================================
+# 複利試算與圖表大亂鬥
+# ==========================================
+st.write("---")
+all_valid = all(etf_data[t]['price'] is not None for t in tickers)
+
+if all_valid and st.button(f"🔥 開始 {years} 年殘酷試算"):
+    data = []
+    total_principal = 0
+    total_values = {t: 0 for t in tickers} 
+    
+    for year in range(1, years + 1):
+        yearly_invest = monthly_invest * 12
+        total_principal += yearly_invest
+        
+        row_data = {
+            "年份": f"第 {year} 年",
+            "累積投入本金": int(total_principal)
+        }
+        
+        for t in tickers:
+            current_yield = etf_data[t]['yield']
+            total_values[t] = (total_values[t] + yearly_invest) * (1 + current_yield)
+            row_data[f"{t} 總資產"] = int(total_values[t])
+            
+        data.append(row_data)
+        
+    df = pd.DataFrame(data)
+    
+    st.write(f"### 🎯 每月投入 {monthly_invest:,} 元，{years} 年後結果...")
+    
+    res_cols = st.columns(num_etfs)
+    for i, t in enumerate(tickers):
+        with res_cols[i]:
+            st.info(f"{colors[i]} **{t}** 預估總資產：\n### {int(total_values[t]):,} 元")
+    
+    st.write("### 📈 資產成長曲線大 PK")
+    chart_columns = ["累積投入本金"] + [f"{t} 總資產" for t in tickers]
+    st.line_chart(df.set_index("年份")[chart_columns])
