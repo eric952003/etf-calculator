@@ -11,7 +11,7 @@ st.title("⚔️ ETF 股息再投入：真實扣血擂台版")
 st.sidebar.header("1. 選擇比較檔數與標的")
 num_etfs = st.sidebar.radio("你想同時試算幾檔 ETF？", [1, 2, 3], horizontal=True)
 
-default_tickers = ["00878.TW", "00679B.TW", "0050.TW"]
+default_tickers = ["00878.TW", "0056.TW", "00713.TW"] # 換成你常關注的選手！
 colors = ["🔴", "🔵", "🟢"]
 tickers = []
 
@@ -25,44 +25,42 @@ years = st.sidebar.slider("預計投資年限", min_value=1, max_value=30, value
 
 st.sidebar.header("3. 真實環境設定")
 freq_options = {"月配息 (一年 12 次)": 12, "季配息 (一年 4 次)": 4, "半年配 (一年 2 次)": 2, "年配息 (一年 1 次)": 1}
-freq_choice = st.sidebar.selectbox("這些 ETF 的配息頻率是？", list(freq_options.keys()), index=1)
+freq_choice = st.sidebar.selectbox("這些 ETF 的配息頻率是？", list(freq_options.keys()), index=1) # 預設季配息
 dividend_frequency = freq_options[freq_choice]
 
 # ==========================================
-# 抓取資料小幫手 (加強偵錯版)
+# 抓取資料小幫手 (100% 數值防禦版)
 # ==========================================
 def fetch_etf_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
         hist = ticker.history(period="1d")
         
-        # 偵錯點 1：檢查是不是被 Yahoo 擋住了 (回傳空表)
         if hist.empty:
             st.warning(f"⚠️ {ticker_symbol} 抓不到股價：Yahoo Finance 回傳空資料，可能是雲端 IP 被擋了！")
             return None, 0.0, 0.0
         
-        price = float(hist['Close'].iloc[0])
+        # 確保價格也是強制抽取的純數字，無視 Series 結構
+        price = float(hist['Close'].values[0]) 
         
-        # 偵錯點 2：把股息抓取獨立出來，避免因為股息抓不到而整個壞掉
         try:
             dividends = ticker.dividends
             if not dividends.empty:
                 recent_divs = dividends.tail(4)
-                total_1y_div = float(recent_divs.sum())
+                # 【核心修正】使用 .values.sum() 強制抽取出純數字加總
+                total_1y_div = float(recent_divs.values.sum())
                 annual_yield = float(total_1y_div / price)
             else:
-                # 假設找不到配息資料，給個預設值 5%
                 annual_yield = 0.05
                 total_1y_div = 0.0
         except Exception as e_div:
-            st.warning(f"⚠️ {ticker_symbol} 抓得到股價，但股息發生異常：{e_div}")
+            st.warning(f"⚠️ {ticker_symbol} 股息資料異常：{e_div}")
             annual_yield = 0.05
             total_1y_div = 0.0
             
         return price, annual_yield, total_1y_div
         
     except Exception as e:
-        # 偵錯點 3：顯示最底層的真實錯誤
         st.error(f"🚨 {ticker_symbol} 系統錯誤：{e}")
         return None, 0.0, 0.0
 
@@ -113,9 +111,9 @@ if all_valid and st.button(f"🔥 開始 {years} 年真實殘酷試算"):
             annual_net_dividend = 0
             
             for _ in range(dividend_frequency):
-                # 補充健保費門檻計算
+                # 二代健保費門檻計算 (單筆股利超過 2 萬元需扣 2.11%)
                 nhi_fee = single_dividend * 0.0211 if single_dividend >= 20000 else 0
-                transfer_fee = 10 
+                transfer_fee = 10 # 假設匯費 10 元
                 
                 net_single = single_dividend - nhi_fee - transfer_fee
                 if net_single < 0: net_single = 0 
