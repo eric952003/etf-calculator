@@ -29,29 +29,32 @@ freq_choice = st.sidebar.selectbox("這些 ETF 的配息頻率是？", list(freq
 dividend_frequency = freq_options[freq_choice]
 
 # ==========================================
-# 抓取資料小幫手
+# 抓取資料小幫手 (加入 float 強制轉換防呆)
 # ==========================================
 def fetch_etf_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
         hist = ticker.history(period="1d")
         if hist.empty:
-            return None, 0, 0
+            return None, 0.0, 0.0
         
-        price = hist['Close'].iloc[0]
+        # 【修改點 1】強制將價格轉為 float
+        price = float(hist['Close'].iloc[0])
         dividends = ticker.dividends
         
         if not dividends.empty:
             recent_divs = dividends.tail(4)
-            total_1y_div = recent_divs.sum()
-            annual_yield = total_1y_div / price
+            # 【修改點 2】強制將加總結果轉為 float，避免 yfinance 傳回奇怪的格式
+            total_1y_div = float(recent_divs.sum())
+            annual_yield = float(total_1y_div / price)
         else:
             annual_yield = 0.05
-            total_1y_div = 0
+            total_1y_div = 0.0
             
         return price, annual_yield, total_1y_div
-    except:
-        return None, 0, 0
+    except Exception as e:
+        # 若發生錯誤，回傳安全的預設值
+        return None, 0.0, 0.0
 
 # ==========================================
 # 顯示選手資料
@@ -66,7 +69,8 @@ for i, t in enumerate(tickers):
     
     with cols[i]:
         st.subheader(f"{colors[i]} {t}")
-        if price:
+        if price is not None:
+            # 確保不會再因為型別報錯
             st.metric("最新收盤價", f"{price:.2f} 元")
             st.metric("近四季合計配息", f"{div_sum:.2f} 元", delta=f"理論殖利率: {yld*100:.2f}%")
         else:
@@ -76,6 +80,7 @@ for i, t in enumerate(tickers):
 # 真實扣血試算邏輯
 # ==========================================
 st.write("---")
+# 檢查是否所有 ETF 都有抓到價格
 all_valid = all(etf_data[t]['price'] is not None for t in tickers)
 
 if all_valid and st.button(f"🔥 開始 {years} 年真實殘酷試算"):
@@ -124,7 +129,6 @@ if all_valid and st.button(f"🔥 開始 {years} 年真實殘酷試算"):
     for i, t in enumerate(tickers):
         with res_cols[i]:
             st.info(f"{colors[i]} **{t}** 預估總資產：\n### {int(total_values[t]):,} 元")
-            # 殘酷的現實：顯示總共被扣了多少錢
             st.warning(f"🩸 累積扣除健保與匯費：**{int(blood_loss[t]):,}** 元")
     
     st.write("### 📈 真實資產成長曲線大 PK")
