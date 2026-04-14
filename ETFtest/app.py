@@ -29,31 +29,41 @@ freq_choice = st.sidebar.selectbox("這些 ETF 的配息頻率是？", list(freq
 dividend_frequency = freq_options[freq_choice]
 
 # ==========================================
-# 抓取資料小幫手 (加入 float 強制轉換防呆)
+# 抓取資料小幫手 (加強偵錯版)
 # ==========================================
 def fetch_etf_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
         hist = ticker.history(period="1d")
+        
+        # 偵錯點 1：檢查是不是被 Yahoo 擋住了 (回傳空表)
         if hist.empty:
+            st.warning(f"⚠️ {ticker_symbol} 抓不到股價：Yahoo Finance 回傳空資料，可能是雲端 IP 被擋了！")
             return None, 0.0, 0.0
         
-        # 【修改點 1】強制將價格轉為 float
         price = float(hist['Close'].iloc[0])
-        dividends = ticker.dividends
         
-        if not dividends.empty:
-            recent_divs = dividends.tail(4)
-            # 【修改點 2】強制將加總結果轉為 float，避免 yfinance 傳回奇怪的格式
-            total_1y_div = float(recent_divs.sum())
-            annual_yield = float(total_1y_div / price)
-        else:
+        # 偵錯點 2：把股息抓取獨立出來，避免因為股息抓不到而整個壞掉
+        try:
+            dividends = ticker.dividends
+            if not dividends.empty:
+                recent_divs = dividends.tail(4)
+                total_1y_div = float(recent_divs.sum())
+                annual_yield = float(total_1y_div / price)
+            else:
+                # 假設找不到配息資料，給個預設值 5%
+                annual_yield = 0.05
+                total_1y_div = 0.0
+        except Exception as e_div:
+            st.warning(f"⚠️ {ticker_symbol} 抓得到股價，但股息發生異常：{e_div}")
             annual_yield = 0.05
             total_1y_div = 0.0
             
         return price, annual_yield, total_1y_div
+        
     except Exception as e:
-        # 若發生錯誤，回傳安全的預設值
+        # 偵錯點 3：顯示最底層的真實錯誤
+        st.error(f"🚨 {ticker_symbol} 系統錯誤：{e}")
         return None, 0.0, 0.0
 
 # ==========================================
@@ -70,7 +80,6 @@ for i, t in enumerate(tickers):
     with cols[i]:
         st.subheader(f"{colors[i]} {t}")
         if price is not None:
-            # 確保不會再因為型別報錯
             st.metric("最新收盤價", f"{price:.2f} 元")
             st.metric("近四季合計配息", f"{div_sum:.2f} 元", delta=f"理論殖利率: {yld*100:.2f}%")
         else:
@@ -104,6 +113,7 @@ if all_valid and st.button(f"🔥 開始 {years} 年真實殘酷試算"):
             annual_net_dividend = 0
             
             for _ in range(dividend_frequency):
+                # 補充健保費門檻計算
                 nhi_fee = single_dividend * 0.0211 if single_dividend >= 20000 else 0
                 transfer_fee = 10 
                 
